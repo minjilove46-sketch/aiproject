@@ -1,407 +1,268 @@
 
-import io
-
-import pandas as pd
 import streamlit as st
+from urllib.parse import quote
 
-
-# -------------------- 기본 설정 --------------------
-
+# -----------------------------
+# 페이지 설정
+# -----------------------------
 st.set_page_config(
-    page_title="알레르기성 비염 통계 분석",
-    page_icon="🤧",
-    layout="wide"
+    page_title="MBTI 음악 추천 🎧",
+    page_icon="🎵",
+    layout="centered"
 )
 
-
-# -------------------- 데이터 불러오기 --------------------
-
-@st.cache_data
-def load_data(file_bytes):
-
-    excel_data = pd.read_excel(
-        io.BytesIO(file_bytes),
-        sheet_name=None
-    )
-
-    data_list = []
-
-    sheet_names = {
-        "진료현황": "진료현황",
-        "(추가) 관외,관내": "관외관내",
-        "(추가) 진료과목별": "진료과목별"
-    }
-
-    for sheet_name, data_type in sheet_names.items():
-
-        if sheet_name in excel_data:
-
-            temp = excel_data[sheet_name].copy()
-
-            temp["데이터구분"] = data_type
-
-            data_list.append(temp)
-
-    if not data_list:
-        return pd.DataFrame()
-
-    result = pd.concat(
-        data_list,
-        ignore_index=True,
-        sort=False
-    )
-
-    return result
-
-
-# -------------------- 화면 제목 --------------------
-
-st.title("🤧 알레르기성 비염 통계 분석")
-
-st.caption(
-    "국민건강보험공단 알레르기성 비염 관련 상병코드 그룹별 환자 수 자료"
-)
-
-st.info(
-    "이 자료는 알레르기성 비염 관련 통계입니다. "
-    "식품 알레르기나 아토피 등 모든 알레르기 질환을 포함하지는 않습니다."
-)
-
-
-# -------------------- 엑셀 파일 업로드 --------------------
-
-st.subheader("📂 데이터 파일 불러오기")
-
-uploaded_file = st.file_uploader(
-    "국민건강보험공단 원본 엑셀 파일을 업로드하세요.",
-    type=["xlsx"]
-)
-
-if uploaded_file is None:
-
-    st.warning(
-        "분석을 시작하려면 원본 엑셀 파일을 업로드해 주세요."
-    )
-
-    st.stop()
-
-
-try:
-
-    df = load_data(uploaded_file.getvalue())
-
-except ImportError:
-
-    st.error(
-        "엑셀 파일을 읽기 위한 openpyxl 라이브러리가 필요합니다."
-    )
-
-    st.stop()
-
-except Exception as e:
-
-    st.error(f"파일을 불러오는 중 오류가 발생했습니다: {e}")
-
-    st.stop()
-
-
-if df.empty:
-
-    st.error("엑셀 파일에서 분석할 데이터를 찾을 수 없습니다.")
-
-    st.stop()
-
-
-st.success(
-    f"데이터 불러오기 완료! 총 {len(df):,}개의 데이터가 있습니다."
-)
-
-
-# -------------------- 사이드바 검색 --------------------
-
-st.sidebar.header("🔎 데이터 검색")
-
-category_labels = {
-    "전체 데이터": None,
-    "진료현황": "진료현황",
-    "관외·관내": "관외관내",
-    "진료과목별": "진료과목별"
-}
-
-selected_category = st.sidebar.selectbox(
-    "분석할 데이터 종류",
-    list(category_labels.keys())
-)
-
-
-filtered = df.copy()
-
-
-# 데이터 종류 선택
-
-if category_labels[selected_category] is not None:
-
-    filtered = filtered[
-        filtered["데이터구분"] == category_labels[selected_category]
-    ].copy()
-
-
-# 내용 검색
-
-search_word = st.sidebar.text_input(
-    "내용 검색",
-    placeholder="예: 서울특별시, 남자, 이비인후과"
-)
-
-if search_word.strip():
-
-    search_mask = filtered.astype(str).apply(
-        lambda column: column.str.contains(
-            search_word.strip(),
-            case=False,
-            na=False,
-            regex=False
-        )
-    ).any(axis=1)
-
-    filtered = filtered[search_mask].copy()
-
-
-# -------------------- 세부 필터 --------------------
-
-filter_settings = [
-    ("진료개시년도", "연도 선택"),
-    ("수진자시도", "지역 선택"),
-    ("성별", "성별 선택"),
-    ("연령", "연령 선택"),
-    ("진료과목", "진료과목 선택")
-]
-
-
-for column_name, label in filter_settings:
-
-    if (
-        column_name in filtered.columns
-        and filtered[column_name].notna().any()
-    ):
-
-        values = filtered[column_name].dropna().unique().tolist()
-
-        values = sorted(
-            values,
-            key=lambda value: str(value)
-        )
-
-        selected_values = st.sidebar.multiselect(
-            label,
-            options=values,
-            default=values,
-            key=f"filter_{column_name}_{selected_category}"
-        )
-
-        filtered = filtered[
-            filtered[column_name].isin(selected_values)
-        ].copy()
-
-
-# -------------------- 요약 정보 --------------------
-
-st.divider()
-
-st.subheader("📊 검색 결과 요약")
-
-col1, col2, col3 = st.columns(3)
-
-col1.metric(
-    "검색된 데이터",
-    f"{len(filtered):,}건"
-)
-
-if not filtered.empty:
-
-    col2.metric(
-        "데이터 종류",
-        f"{filtered['데이터구분'].nunique()}개"
-    )
-
-else:
-
-    col2.metric("데이터 종류", "0개")
-
-
-# -------------------- 환자 수 항목 선택 --------------------
-
-st.divider()
-
-st.subheader("📈 환자 수 분석")
-
-numeric_columns = [
-    "진료인원",
-    "적용인구",
-    "관내",
-    "관외",
-    "진료환자"
-]
-
-available_columns = [
-    column
-    for column in numeric_columns
-    if column in filtered.columns
-    and filtered[column].notna().any()
-]
-
-
-if available_columns:
-
-    selected_measure = st.selectbox(
-        "분석할 항목 선택",
-        available_columns
-    )
-
-    filtered[selected_measure] = pd.to_numeric(
-        filtered[selected_measure],
-        errors="coerce"
-    )
-
-    total_value = filtered[selected_measure].sum()
-
-    col3.metric(
-        f"{selected_measure} 합계",
-        f"{total_value:,.0f}명"
-    )
-
-else:
-
-    selected_measure = None
-
-    col3.metric("환자 수 합계", "-")
-
-
-# -------------------- 그래프 --------------------
-
-if filtered.empty:
-
-    st.warning(
-        "검색 결과가 없습니다. 검색어나 필터를 변경해 주세요."
-    )
-
-elif selected_measure is not None:
-
-    group_candidates = [
-        column
-        for column in [
-            "진료개시년도",
-            "수진자시도",
-            "성별",
-            "연령",
-            "진료과목"
-        ]
-        if column in filtered.columns
-        and filtered[column].nunique(dropna=True) > 1
-    ]
-
-    if group_candidates:
-
-        default_group = (
-            "진료개시년도"
-            if "진료개시년도" in group_candidates
-            else group_candidates[0]
-        )
-
-        selected_group = st.selectbox(
-            "그래프 분류 기준",
-            group_candidates,
-            index=group_candidates.index(default_group)
-        )
-
-        chart_data = filtered.copy()
-
-        chart_data[selected_measure] = pd.to_numeric(
-            chart_data[selected_measure],
-            errors="coerce"
-        )
-
-        chart_summary = (
-            chart_data
-            .dropna(subset=[selected_measure])
-            .groupby(selected_group)[selected_measure]
-            .sum()
-            .reset_index()
-        )
-
-        chart_summary[selected_group] = (
-            chart_summary[selected_group].astype(str)
-        )
-
-        if selected_group == "진료개시년도":
-
-            chart_summary = chart_summary.sort_values(
-                selected_group
-            )
-
-        st.subheader("📊 막대그래프")
-
-        st.bar_chart(
-            chart_summary,
-            x=selected_group,
-            y=selected_measure,
-            use_container_width=True
-        )
-
-        if selected_group == "진료개시년도":
-
-            st.subheader("📉 연도별 변화")
-
-            line_data = chart_summary.set_index(
-                selected_group
-            )[[selected_measure]]
-
-            st.line_chart(
-                line_data,
-                use_container_width=True
-            )
-
-    else:
-
-        st.info(
-            "현재 검색 결과에는 비교할 분류 항목이 충분하지 않습니다."
-        )
-
-
-# -------------------- 데이터 표 --------------------
-
-st.divider()
-
-st.subheader("📋 검색된 데이터 전체 보기")
+# -----------------------------
+# 제목 및 소개
+# -----------------------------
+st.title("🎧 MBTI별 음악 추천소")
+st.subheader("나의 MBTI에는 어떤 노래가 어울릴까? 🎶")
 
 st.write(
-    f"검색 결과: **{len(filtered):,}건**"
+    "16가지 MBTI 중 나의 유형을 선택하면 "
+    "너에게 어울리는 노래를 추천해 줄게!"
 )
 
-st.dataframe(
-    filtered,
-    use_container_width=True,
-    hide_index=True
+st.info("✨ 노래를 들으면서 새로운 취향도 발견해 보자!")
+
+# -----------------------------
+# MBTI별 음악 데이터
+# 노래 제목, 가수, 추천 이유 및 감상평
+# -----------------------------
+music_data = {
+    "ISTJ": {
+        "intro": "차분하고 현실적인 ISTJ에게 추천하는 음악 📖",
+        "songs": [
+            ("밤편지", "아이유",
+             "잔잔하고 따뜻한 분위기가 ISTJ의 차분한 감성과 잘 어울려."),
+            ("기억을 걷는 시간", "넬",
+             "깊이 있는 멜로디와 감성이 혼자만의 시간을 더욱 특별하게 만들어 줘.")
+        ]
+    },
+
+    "ISFJ": {
+        "intro": "따뜻하고 배려심 많은 ISFJ를 위한 음악 🌷",
+        "songs": [
+            ("모든 날, 모든 순간", "폴킴",
+             "소중한 사람을 향한 따뜻한 마음이 잘 느껴지는 노래야."),
+            ("너의 모든 순간", "성시경",
+             "부드러운 목소리와 포근한 분위기가 ISFJ의 다정함을 닮았어.")
+        ]
+    },
+
+    "INFJ": {
+        "intro": "깊은 생각과 감성을 가진 INFJ를 위한 음악 🌙",
+        "songs": [
+            ("걱정말아요 그대", "이적",
+             "힘든 순간에도 괜찮다고 위로해 주는 듯한 따뜻한 곡이야."),
+            ("봄날은 간다", "김윤아",
+             "아름답지만 쓸쓸한 분위기가 INFJ의 섬세한 감성과 어울려.")
+        ]
+    },
+
+    "INTJ": {
+        "intro": "독립적이고 생각이 깊은 INTJ를 위한 음악 🌌",
+        "songs": [
+            ("사건의 지평선", "윤하",
+             "웅장한 분위기와 새로운 시작을 떠올리게 하는 가사가 잘 어울려."),
+            ("Square (2017)", "백예린",
+             "몽환적인 사운드가 자신만의 세계를 가진 INTJ에게 잘 맞을 것 같아.")
+        ]
+    },
+
+    "ISTP": {
+        "intro": "쿨하고 자유로운 ISTP를 위한 음악 🎸",
+        "songs": [
+            ("TOMBOY", "혁오",
+             "자유롭고 개성 있는 분위기가 ISTP의 독립적인 매력을 닮았어."),
+            ("한 페이지가 될 수 있게", "DAY6",
+             "시원한 밴드 사운드가 답답한 기분까지 날려 줄 것 같아.")
+        ]
+    },
+
+    "ISFP": {
+        "intro": "감각적이고 감성적인 ISFP를 위한 음악 🦋",
+        "songs": [
+            ("어떻게 이별까지 사랑하겠어, 널 사랑하는 거지", "AKMU",
+             "섬세한 감정과 아름다운 멜로디가 ISFP의 감성을 자극해."),
+            ("Square (2017)", "백예린",
+             "부드럽고 감각적인 분위기가 ISFP의 취향과 잘 어울려.")
+        ]
+    },
+
+    "INFP": {
+        "intro": "상상력이 풍부하고 낭만적인 INFP를 위한 음악 💌",
+        "songs": [
+            ("이름에게", "아이유",
+             "마음을 다독여 주는 듯한 가사가 INFP의 따뜻한 감성과 잘 맞아."),
+            ("Everything", "검정치마",
+             "몽환적이고 감성적인 분위기가 상상력이 풍부한 INFP를 떠올리게 해.")
+        ]
+    },
+
+    "INTP": {
+        "intro": "호기심 많고 독특한 INTP를 위한 음악 🎧",
+        "songs": [
+            ("Everything", "검정치마",
+             "독특하면서도 편안한 사운드가 INTP의 개성 있는 취향과 어울려."),
+            ("들려주고 싶었던", "이승윤",
+             "개성 있는 목소리와 음악적 색깔이 INTP에게 새로운 느낌을 줄 거야.")
+        ]
+    },
+
+    "ESTP": {
+        "intro": "에너지 넘치고 도전적인 ESTP를 위한 음악 🔥",
+        "songs": [
+            ("예술이야", "싸이",
+             "신나는 리듬과 긍정적인 에너지가 ESTP의 활동적인 성격과 잘 맞아."),
+            ("HER", "블락비",
+             "톡톡 튀는 리듬과 자유로운 분위기가 ESTP의 매력을 살려 줘.")
+        ]
+    },
+
+    "ESFP": {
+        "intro": "밝고 즐거움을 사랑하는 ESFP를 위한 음악 ☀️",
+        "songs": [
+            ("After LIKE", "IVE",
+             "경쾌한 비트와 화려한 분위기가 ESFP의 밝은 에너지와 찰떡이야."),
+            ("PARTY", "소녀시대",
+             "듣기만 해도 신나는 여름 분위기가 ESFP의 즐거운 성격을 닮았어.")
+        ]
+    },
+
+    "ENFP": {
+        "intro": "밝고 자유로운 상상력을 가진 ENFP를 위한 음악 🌈",
+        "songs": [
+            ("여행", "볼빨간사춘기",
+             "어디론가 떠나고 싶은 설렘이 ENFP의 자유로운 성격과 잘 어울려."),
+            ("한 페이지가 될 수 있게", "DAY6",
+             "앞으로의 모든 순간을 즐겁게 만들어 줄 것 같은 곡이야.")
+        ]
+    },
+
+    "ENTP": {
+        "intro": "재치 있고 새로운 것을 좋아하는 ENTP를 위한 음악 ⚡",
+        "songs": [
+            ("아무노래", "지코",
+             "독특하고 중독성 있는 리듬이 ENTP의 자유로운 분위기를 닮았어."),
+            ("DINOSAUR", "AKMU",
+             "신선하고 개성 있는 사운드가 ENTP의 호기심을 자극할 것 같아.")
+        ]
+    },
+
+    "ESTJ": {
+        "intro": "추진력 있고 책임감 있는 ESTJ를 위한 음악 🚀",
+        "songs": [
+            ("촛불하나", "god",
+             "힘을 주는 가사가 ESTJ의 든든하고 적극적인 모습과 잘 어울려."),
+            ("파이팅 해야지", "부석순",
+             "지칠 때 다시 힘을 낼 수 있게 해 주는 에너지 넘치는 곡이야.")
+        ]
+    },
+
+    "ESFJ": {
+        "intro": "사람들과 함께하는 걸 좋아하는 ESFJ를 위한 음악 💗",
+        "songs": [
+            ("선물", "멜로망스",
+             "달콤하고 따뜻한 분위기가 ESFJ의 다정한 마음을 떠올리게 해."),
+            ("붉은 노을", "이문세",
+             "누구와 함께 들어도 즐거운 분위기가 ESFJ의 사교적인 매력과 어울려.")
+        ]
+    },
+
+    "ENFJ": {
+        "intro": "공감 능력이 뛰어나고 따뜻한 ENFJ를 위한 음악 🌻",
+        "songs": [
+            ("봄날", "방탄소년단",
+             "그리움과 기다림을 담은 가사가 ENFJ의 깊은 공감 능력과 잘 맞아."),
+            ("수고했어, 오늘도", "옥상달빛",
+             "오늘 하루도 잘 버텼다고 다정하게 위로해 주는 노래야.")
+        ]
+    },
+
+    "ENTJ": {
+        "intro": "자신감 있고 목표를 향해 나아가는 ENTJ를 위한 음악 👑",
+        "songs": [
+            ("Drama", "aespa",
+             "강렬한 사운드와 당당한 분위기가 ENTJ의 자신감과 잘 어울려."),
+            ("Fantastic Baby", "BIGBANG",
+             "압도적인 에너지와 신나는 비트가 ENTJ의 추진력을 닮았어.")
+        ]
+    }
+}
+
+# -----------------------------
+# MBTI 선택
+# -----------------------------
+st.markdown("---")
+
+st.subheader("🔍 나의 MBTI를 선택해 줘!")
+
+mbti_list = list(music_data.keys())
+
+selected_mbti = st.selectbox(
+    "어떤 유형인가요?",
+    mbti_list,
+    index=0,
+    format_func=lambda x: "🧩 " + x
 )
 
+# -----------------------------
+# 추천 결과
+# -----------------------------
+if st.button("🎵 나에게 맞는 노래 추천받기", use_container_width=True):
 
-# -------------------- CSV 다운로드 --------------------
+    result = music_data[selected_mbti]
 
-csv_data = filtered.to_csv(
-    index=False
-).encode("utf-8-sig")
+    st.markdown("---")
 
-st.download_button(
-    label="📥 검색 결과 CSV 다운로드",
-    data=csv_data,
-    file_name="알레르기성_비염_검색결과.csv",
-    mime="text/csv"
-)
+    st.success(f"🎉 {selected_mbti} 유형을 위한 추천 결과!")
 
+    st.subheader(result["intro"])
 
-# -------------------- 출처 --------------------
+    st.write("너의 성격과 분위기를 떠올리며 노래를 골라 봤어!")
+
+    for i, song in enumerate(result["songs"], 1):
+
+        title, artist, review = song
+
+        st.markdown(f"### 🎶 추천곡 {i}")
+
+        st.write(f"**🎵 노래 제목 : {title}**")
+        st.write(f"🎤 가수 : {artist}")
+
+        st.info(f"💬 추천 이유 & 감상평\n\n{review}")
+
+        # 멜론에서 해당 곡 검색하기
+        search_word = quote(title + " " + artist)
+
+        melon_url = (
+            "https://www.melon.com/search/song/index.htm?q="
+            + search_word
+            + "&section=&searchGnbYn=Y"
+        )
+
+        st.markdown(
+            f"👉 [멜론에서 노래 검색하기 🎧]({melon_url})"
+        )
+
+        st.markdown("---")
+
+    st.balloons()
+
+    st.write("💗 마음에 드는 노래가 있었으면 좋겠다!")
+
+# -----------------------------
+# 하단 안내
+# -----------------------------
+st.markdown("---")
 
 st.caption(
-    "분석 도구: Pandas | "
-    "데이터 출처: 국민건강보험공단 제공 엑셀 자료"
+    "🎧 MBTI는 재미로 참고하는 성격 유형이며, "
+    "음악 추천은 개인의 취향에 따라 다를 수 있어요."
 )
+
+st.caption(
+    "※ 음원 제공 여부는 서비스 및 시점에 따라 달라질 수 있습니다."
+)
+
+st.caption("Made with Streamlit 💕")

@@ -6,10 +6,5 @@ pandas
 matplotlib
 numpy
 scikit-learn
-프로젝트 폴더
-│
-├── app.py
-├── allergic_rhinitis_yearly.csv
-│
-└── pages
-    └── 01_알레르기_분석.py
+app.py
+allergic_rhinitis_yearly.csv

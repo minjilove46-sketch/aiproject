@@ -6,5 +6,3 @@ pandas
 matplotlib
 numpy
 scikit-learn
-app.py
-allergic_rhinitis_yearly.csv
